@@ -1,23 +1,18 @@
 # ML_News_Face_Recognition
-
 ### Trabajo de fin de master Big Data Analytics
-
 #### - Definición del prototipo inicial
 
 Este prototipo funcional tiene como finalidad detectar 
-a personakes políticos, presentadores del telediario y 
+a personajes políticos, presentadores del telediario y 
 la tipología de plano en los cuales estos personajes
  aparecen.
  
 #### - Requerimientos generales del prototipo
-
 * Modelo entrenado o método para detectar las caras de 
 las personas que aparecen en cada frame del vídeo a 
 analizar.
-
 * Modelo entrenado o método para detectar rasgos 
-carácterísticos de cada una de las caras identificadas.
-
+característicos de cada una de las caras identificadas.
 * Modelo entrenado o método para obtener una representación
  universal de los rasgos identificados en cada cara, para 
  así tener una forma de comparar dos caras y saber si 
@@ -29,8 +24,7 @@ carácterísticos de cada una de las caras identificadas.
  sobre las imágenes/frames de un vídeo.
  
 * Datasets con imágenes con las caras de los personajes
-políticos y presentadores de telediarios a análizar.
-
+políticos y presentadores de telediarios a analizar.
 * Plataforma común donde poder hacer la integración de los
 diferentes modelos y donde mostrar los resultados obtenidos.
 Además se deberá tener en cuenta de que el prototipo soporte
@@ -39,6 +33,11 @@ cambiar el código original, para testear y obtener los mejores
 resultados. Con el añadido de tener cuenta la posibilidad de
 realizar el análisis en tiempo real.
 
+* Base de datos donde almacenar los vídeos etiquetados, imágenes
+de entrenamiento, imágenes detectadas que se deseen guardar y
+ donde guardar el documento de texto plano en el cuál se recoja
+ el tiempo de aparición de cada persona y el tipo de plano.
+ 
 #### - Evolución del prototipo
 
 De los requerimientos mencionados a lunes 24 de Septiembre de
@@ -49,10 +48,8 @@ planos.
 
 Todo el código se ha desarrollado siguiendo la versión 
 *Python 3.6* obtenida desde la distribución *Anaconda*.
-
 Las librerías usadas en el script que es necesario tener
 instaladas son:
-
 * cv2
 * pickle
 * numpy
@@ -67,7 +64,7 @@ instaladas son:
 En primer lugar se han de generar los componentes más 
 discriminantes de cada cara de las personas a reconocer,
  a través de los cuales posteriormente compararemos los
- componentes obtenidos en una imagen a análizar.
+ componentes obtenidos en una imagen a analizar.
  
  Para generar este set de entrenamiento se han de introducir
  las imágenes, que se quieren usar como entrenamiento, en una
@@ -78,7 +75,7 @@ discriminantes de cada cara de las personas a reconocer,
  para identificar al personaje que aparece en las imágenes.
  
  Para realizar el entrenamiento con esas imágenes se ha de
- ejecutar el siguiente script de la forma que sigue:
+ ejecutar el siguiente *script* de la forma que sigue:
  
   ``` [Python]
   python generate_training_set.py 5_face_landmarks hog ./images/training
@@ -95,7 +92,7 @@ discriminantes de cada cara de las personas a reconocer,
   ###### - Reconocimiento
   
   Una vez entrenado el modelo con un método de reconocimiento
-  de caras y un obtención de los rasgos carácterísticos 
+  de caras y un obtención de los rasgos característicos 
   determinado, deberemos usar esos mismos métodos para el
   reconocimiento. Siguiendo con el ejemplo anterior, usaremos 
   el método '5_face_landmarks' junto con el

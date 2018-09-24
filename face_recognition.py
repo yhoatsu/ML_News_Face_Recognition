@@ -40,7 +40,7 @@ import dlib
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # To check if the params are well introduced by the user
-if len(sys.argv) != 5:
+if len(sys.argv) != 7:
     print(
         "Call this program like this:\n"
         "   ./face_recognition.py 5_face_landmarks hog ./images/test.jpg \n"
@@ -53,10 +53,18 @@ if len(sys.argv) != 5:
         "hog is less accurate but faster on CPUs. cnn is a more accurate \n"
         "deep-learning model which is GPU/CUDA accelerated (if available). The default is hog.\n"
         "----------------------------------------------------------\n"
-        "The third param is the path where the folders with the images to use as training set are located.\n"
+        "The third param is the complete path to the image or video to analyze.\n"
         "----------------------------------------------------------\n"
         "The fourth param is the times that the face is re-sampled and slightly modified each time at the moment\n"
-        "of calculated the 128D array that defined that face.\n")
+        "of calculated the 128D array that defined that face.\n"
+        "----------------------------------------------------------\n"
+        "The fifth param is to show the images/video with the marks of face recognition and also the landmarks\n"
+        "od the face if the object of analysis is a image. So, write 'yes' to see it or 'no' in other case.\n"
+        "At the case of a video analysis, to stop the analysis you can push 'q' while you watching the video result\n"
+        "----------------------------------------------------------\n"
+        "The sixth param is to change the threshold of recognition, you can choose any number between 0 and 1\n"
+        "if the number id near to 1 (0.9 for example) you will have to many false positive, but if you enter\n"
+        "a number near to 0 you'll be probably don't get any positive match. The defect value is 0.475.")
     exit()
 
 # Save at variables the methods and path introduced by the user
@@ -64,6 +72,8 @@ predictor_model = sys.argv[1]
 face_rec_model = sys.argv[2]
 path_object = sys.argv[3]
 resample_times = int(sys.argv[4])
+verbose = sys.argv[5]
+threshold_user = float(sys.argv[6])
 
 # At the script "generate_training_set" we save two items:
 # x_train -> that is a list with the features of each face in our database that we'll use to predict.
@@ -99,7 +109,7 @@ face_rec = dlib.face_recognition_model_v1("models/dlib_face_recognition_resnet_m
 
 # Model K-NN to classify a face_descriptor using the training_set obtained with the script generate_training_set.py
 def my_knn(face_descriptor_to_predict, training_set=x_train, labels_training=y_labels,
-           neighborhoods=3, ord_norm=2, threshold=0.475):
+           neighborhoods=3, ord_norm=2, threshold=threshold_user):
     # Calculates the L^n norm for each pair of values training_set[q]-face_descriptor_to_predict
     # By defect calculates L2 norm (euclidean distance)
     distances = np.linalg.norm(training_set - face_descriptor_to_predict, axis=1, ord=ord_norm)
@@ -133,37 +143,43 @@ type_object = path_object.split(".")[-1]
 
 # Face detection in one image
 if type_object == 'jpg' or type_object == 'jpeg':
-    # To define a blank window where we'll draw an numpy image
-    win = dlib.image_window()
+    if verbose == "yes":
+        # To define a blank window where we'll draw an numpy image
+        win = dlib.image_window()
 
     # Read the image of the user as a numpy array
     image = dlib.load_rgb_image(path_object)
     # Save the detects faces at the variable faces using the detector defined before
     faces = face_detector(image, 1)
 
-    # To print at the blank window the image loaded
-    win.set_image(image)
+    if verbose == "yes":
+        # To print at the blank window the image loaded
+        win.set_image(image)
 
     # That loop is analyze each face detected at the variable faces
     for face in faces:
-        # Remove all overlays from the image_window.
-        win.clear_overlay()
+        if verbose == "yes":
+            # Remove all overlays from the image_window.
+            win.clear_overlay()
 
         # The detector return different objects depend if we use cnn or hog
         if face_rec_model == "cnn":
             # Here we get the landmarks that defines the face.
             shape = shape_pred(image, face.rect)
-            # Add a layer at the image showing the box where the face is.
-            win.add_overlay(face.rect)
+            if verbose == "yes":
+                # Add a layer at the image showing the box where the face is.
+                win.add_overlay(face.rect)
         else:
             shape = shape_pred(image, face)
-            win.add_overlay(face)
+            if verbose == "yes":
+                win.add_overlay(face)
 
-        # Add a layer at the image showing the landmarks that defines the face.
-        win.add_overlay(shape)
+        if verbose == "yes":
+            # Add a layer at the image showing the landmarks that defines the face.
+            win.add_overlay(shape)
 
         # Computes the 128D array that define the face and that'll be used to predict the label of the face.
-        face_descriptor = np.array(face_rec.compute_face_descriptor(image, shape))
+        face_descriptor = np.array(face_rec.compute_face_descriptor(image, shape, resample_times))
 
         # distances = np.linalg.norm(face_encodings - face_to_compare, axis=1)
         label_predicted = my_knn(face_descriptor, neighborhoods=1)
@@ -176,7 +192,7 @@ elif type_object == 'mp4' or type_object == 'avi':
 
     video_in = cv2.VideoCapture(path_object)
     video_out = cv2.VideoWriter('video_result.avi', cv2.VideoWriter_fourcc(*'XVID'),
-                                video_in.get(5), (int(video_in.get(3)), int(video_in.get(4))))
+                                25.0, (int(video_in.get(3)), int(video_in.get(4))))
 
     while video_in.isOpened():
 
@@ -199,14 +215,20 @@ elif type_object == 'mp4' or type_object == 'avi':
 
             label_predicted = my_knn(face_descriptor, neighborhoods=1)
 
-            cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-            cv2.putText(frame, str(label_predicted), (left, top),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+            if label_predicted != 'Unknown':
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 1)
+                cv2.putText(frame, label_predicted, (left, top),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1, cv2.LINE_AA)
+            else:
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 0), 1)
+                cv2.putText(frame, label_predicted, (left, top),
+                            cv2.FONT_HERSHEY_PLAIN, 1, (255, 0, 0), 1, cv2.LINE_4)
 
         video_out.write(frame)
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        if verbose == "yes":
+            cv2.imshow('frame', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     # When everything done, release the capture
     video_in.release()

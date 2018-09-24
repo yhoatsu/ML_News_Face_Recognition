@@ -119,7 +119,7 @@ def my_knn(face_descriptor_to_predict, training_set=x_train, labels_training=y_l
     # If the min distance between the introduced face descriptor and the faces at the training set
     # aren't to close (defined by the threshold) then stop here and return as Unknown the face under analysis
     if distances[locations_lower_distances[0]] < threshold:
-        print(distances[locations_lower_distances[0]])
+
         # To get the labels of the K nearest neighborhoods
         labels_k_neighborhoods = [labels_training[index] for index in locations_lower_distances[:neighborhoods]]
         # To count the number of labels that appears repeated
@@ -129,7 +129,7 @@ def my_knn(face_descriptor_to_predict, training_set=x_train, labels_training=y_l
 
         # Save at the variable prediction the label that appear more than the rest at the k-nn
         prediction = max(dictionary_counts_labels_knn, key=dictionary_counts_labels_knn.get)
-        print(prediction)
+
     else:
         prediction = 'Unknown'
 

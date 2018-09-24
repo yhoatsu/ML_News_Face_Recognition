@@ -1,6 +1,6 @@
 # ML_News_Face_Recognition
 
-###Trabajo de fin de master Big Data Analytics
+### Trabajo de fin de master Big Data Analytics
 
 #### - Definición del prototipo inicial
 
@@ -81,8 +81,7 @@ discriminantes de cada cara de las personas a reconocer,
  ejecutar el siguiente script de la forma que sigue:
  
   ``` [Python]
-  python generate_training_set.py 5_face_landmarks hog 
-  ./images/training
+  python generate_training_set.py 5_face_landmarks hog ./images/training
   ```
   
   Hay varias opciones disponibles de entrenamiento, la 
@@ -103,16 +102,14 @@ discriminantes de cada cara de las personas a reconocer,
   detector 'hog'. Veamos un ejemplo aplicado a una imagen:
   
    ``` [Python]
-    python face_recognition.py 5_face_landmarks hog 
-    ./images/test/pedro.jpg 10 yes 0.475
+    python face_recognition.py 5_face_landmarks hog ./images/test/pedro.jpg 10 yes 0.475
    ```
    
    Y para un vídeo la forma de llamar al script para su
    análisis es análoga:
    
    ``` [Python]
-    python face_recognition.py 5_face_landmarks hog 
-   ./video/test/pedro.jpg 10 yes 0.475
+    python face_recognition.py 5_face_landmarks hog ./video/test/pedro.jpg 10 yes 0.475
    ```
    
    De la misma forma que antes, si queremos ver todas las

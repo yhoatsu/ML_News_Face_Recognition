@@ -35,6 +35,13 @@ import os
 import sys
 # Library to detect faces, read the models to obtain the features of a face and to obtain the pixels where the face is.
 import dlib
+#
+from time import time
+#
+import collections
+#
+import pandas as pd
+import pprint
 
 # To save images images/frames or video, we save the base path where that script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,13 +113,12 @@ else:
 # Load a face recognition model that generate a 128D array to classify the face.
 face_rec = dlib.face_recognition_model_v1("models/dlib_face_recognition_resnet_model_v1.dat")
 
-
 # Model K-NN to classify a face_descriptor using the training_set obtained with the script generate_training_set.py
-def my_knn(face_descriptor_to_predict, training_set=x_train, labels_training=y_labels,
+def my_knn(face_descriptor_to_predict, coef=0, training_set=x_train, labels_training=y_labels,
            neighborhoods=3, ord_norm=2, threshold=threshold_user):
     # Calculates the L^n norm for each pair of values training_set[q]-face_descriptor_to_predict
     # By defect calculates L2 norm (euclidean distance)
-    distances = np.linalg.norm(training_set - face_descriptor_to_predict, axis=1, ord=ord_norm)
+    distances = np.linalg.norm(training_set - face_descriptor_to_predict, axis=1, ord=ord_norm) + coef
     # To order the array of distances and save the arguments or locations of the values of distances
     locations_lower_distances = np.argsort(distances)
 
@@ -136,6 +142,28 @@ def my_knn(face_descriptor_to_predict, training_set=x_train, labels_training=y_l
     # Return the label with the prediction of the face
     return prediction
 
+#
+def predict_face(labels):
+    count_rep_elements = collections.Counter(labels)
+    del count_rep_elements['Unknown']
+    dict_count_rep_elements = count_rep_elements.most_common(1)
+    if len(dict_count_rep_elements) == 0:
+        most_freq_element = 'Unknown'
+    elif dict_count_rep_elements[0][1] < 10:
+        most_freq_element = 'Unknown'
+    else:
+        most_freq_element = dict_count_rep_elements[0][0]
+    return most_freq_element
+
+
+def frame_to_time(frame):
+    time_raw = frame/25
+    time_milli_secs = int((time_raw - int(time_raw))*100)
+    time_secs_acum = int(time_raw)
+    time_min = int(time_secs_acum/60)
+    time_hours = int(time_min/60)
+    time_secs = time_secs_acum - time_min*60
+    return str(time_hours) + ':' + str(time_min) + ':' + str(time_secs) + '.' + str(time_milli_secs)
 
 # Save at a variable the termination of the object introduced by the user to analyze,
 # to know if is a image or a video (same as .endswith(""))
@@ -192,14 +220,22 @@ elif type_object == 'mp4' or type_object == 'avi':
 
     video_in = cv2.VideoCapture(path_object)
     video_out = cv2.VideoWriter('video_result.avi', cv2.VideoWriter_fourcc(*'XVID'),
-                                25.0, (int(video_in.get(3)), int(video_in.get(4))))
+                                min(25.0, video_in.get(5)), (int(video_in.get(3)), int(video_in.get(4))))
+    num_frame = 0
+    #
+    dictionary_faces = {}
+    dictionary_faces_temp = {}
+    dictionary_faces_temp['init'] = \
+    {'position': [{'left': -1, 'right': -1, 'top': -1, 'bottom': -1}],
+     'labels': [],
+     'num_frames': []}
+    #frames = []
 
     while video_in.isOpened():
-
+        num_frame += 1
         ret, frame = video_in.read()
-
+        #frames.append(frame)
         faces = face_detector(frame, 1)
-
         for face in faces:
             # The detector return different objects depend if we use cnn or hog
             if face_rec_model == "cnn":
@@ -210,28 +246,147 @@ elif type_object == 'mp4' or type_object == 'avi':
                 shape = shape_pred(frame, face)
                 top, right, bottom, left = face.top(), face.right(), face.bottom(), face.left()
 
+            width_face = right - left
+            length_face = bottom - top
+
+            width_ratio = width_face/video_in.get(3)
+            #length_ratio = length_face/video_in.get(4)
+
+            coef_adjustment = (1-width_ratio)*0.06
+
+            #
+            center_face = {'axis_x': left+width_face/2, 'axis_y': top+length_face/2}
+            area_face = width_face*length_face
+
             # Computes the 128D array that define the face and that'll be used to predict the label of the face.
             face_descriptor = np.array(face_rec.compute_face_descriptor(frame, shape, resample_times))
+            #
+            label_predicted = my_knn(face_descriptor, coef=coef_adjustment, neighborhoods=1)
+            #
+            face_found = 0
+            there_are_faces = 0
+            for faces_in_dict in dictionary_faces_temp.values():
 
-            label_predicted = my_knn(face_descriptor, neighborhoods=1)
+                there_are_faces = 1
 
-            if label_predicted != 'Unknown':
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 1)
-                cv2.putText(frame, label_predicted, (left, top),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1, cv2.LINE_AA)
-            else:
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 0), 1)
-                cv2.putText(frame, label_predicted, (left, top),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (255, 0, 0), 1, cv2.LINE_4)
+                last_position = faces_in_dict['position'][-1]
 
-        video_out.write(frame)
+                if last_position['left'] <= center_face['axis_x'] <= last_position['right'] and \
+                        last_position['top'] <= center_face['axis_y'] <= last_position['bottom']:
+
+                    width_last_face = last_position['right'] - last_position['left']
+                    length_last_face = last_position['bottom'] - last_position['top']
+                    center_last_face = {'axis_x': last_position['left']+width_face/2,
+                                        'axis_y': last_position['top']+length_face/2}
+                    area_last_face = width_last_face*length_last_face
+
+                    #print('**************************************************************')
+                    #print(abs(center_last_face['axis_x']-center_face['axis_x']))
+                    #print(video_in.get(3)*0.01)
+                    #print('------------------------------1-------------------------------')
+                    #print(abs(center_last_face['axis_y']-center_face['axis_y']))
+                    #print(video_in.get(4)*0.01)
+                    #print('------------------------------2-------------------------------')
+                    #print(abs(area_last_face-area_face))
+                    #print(video_in.get(3)*video_in.get(4)*(0.01**2))
+                    #print('------------------------------3-------------------------------')
+
+                    if abs(center_last_face['axis_x']-center_face['axis_x']) <= video_in.get(3)*0.07 and \
+                            abs(center_last_face['axis_y']-center_face['axis_y']) <= video_in.get(4)*0.1 and \
+                            abs(area_last_face-area_face) <= video_in.get(3)*video_in.get(4)*0.004275:
+
+
+
+                        faces_in_dict['position'].append({'left': left, 'right': right, 'top': top, 'bottom': bottom})
+                        faces_in_dict['labels'].append(label_predicted)
+                        faces_in_dict['num_frames'].append(num_frame)
+
+                    face_found = 1
+
+            if face_found == 0 and there_are_faces == 1:
+                dictionary_faces_temp['face_' + str(time())] = \
+                    {'position': [{'left': left, 'right': right, 'top': top, 'bottom': bottom}],
+                     'labels': [label_predicted], 'num_frames': [num_frame]}
+
+            try:
+                del dictionary_faces_temp['init']
+            except KeyError:
+                pass
+
+            #
+            #print('*****************************************************************')
+            #pprint.pprint(dictionary_faces_temp)
+            #print(len(dictionary_faces_temp.values()))
+            key_to_delete = []
+            for key, faces_in_dict in dictionary_faces_temp.items():
+                #print('------------------------------------------------------------')
+                #print(num_frame)
+                #print(faces_in_dict['num_frames'][-1])
+                #print(num_frame-faces_in_dict['num_frames'][-1])
+                if num_frame-faces_in_dict['num_frames'][-1] >= 10:
+                    key_to_delete.append(key)
+                    pred_face = predict_face(faces_in_dict['labels'])
+                    if pred_face != 'Unknown':
+                        face_name = 'face_' + str(time())
+                        dictionary_faces[face_name] = faces_in_dict
+                        dictionary_faces[face_name]['label_predicted'] = pred_face
+
+            for keys in key_to_delete:
+                del dictionary_faces_temp[keys]
+
+        #print(dictionary_faces)
         if verbose == "yes":
             cv2.imshow('frame', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
+        if num_frame == int(video_in.get(7)):
+            break
+
+    video_in.release()
+    video_in = cv2.VideoCapture(path_object)
+    num_frame = 0
+    while video_in.isOpened():
+        num_frame += 1
+        ret, frame = video_in.read()
+        for faces_in_dict_final in dictionary_faces.values():
+            if num_frame in faces_in_dict_final['num_frames']:
+                pos_in_dictionary = faces_in_dict_final['num_frames'].index(num_frame)
+                label_predicted = faces_in_dict_final['label_predicted']
+                left = faces_in_dict_final['position'][pos_in_dictionary]['left']
+                top = faces_in_dict_final['position'][pos_in_dictionary]['top']
+                right = faces_in_dict_final['position'][pos_in_dictionary]['right']
+                bottom = faces_in_dict_final['position'][pos_in_dictionary]['bottom']
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 4)
+                cv2.putText(frame, label_predicted, (left, top),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+
+        if verbose == "yes":
+            cv2.imshow('frame', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        video_out.write(frame)
+
+        if num_frame == int(video_in.get(7)):
+            break
+
     # When everything done, release the capture
     video_in.release()
     video_out.release()
     cv2.destroyAllWindows()
+
+    start_frames = []
+    end_frames = []
+    labels = []
+    for faces in dictionary_faces.values():
+        start_frames.append(frame_to_time(faces['num_frames'][0]))
+        end_frames.append(frame_to_time(faces['num_frames'][-1]))
+        labels.append(faces['label_predicted'])
+
+    dictionary_dataframe = {'0start_frames': start_frames, '1end_frames': end_frames, '2label': labels}
+    df = pd.DataFrame(data=dictionary_dataframe)
+    df.to_csv('/home/yhoatsu/IdeaProjects/ML_News_Face_Recognition/tabla.csv')
+
+
 

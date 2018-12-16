@@ -1,0 +1,7 @@
+docker build -t test-python .
+
+docker volume create mlnews
+
+docker run --mount source=mlnews,target=/home test-python python face_recognition.py 5_face_landmarks hog ./images/training/Ana_Pastor/Ana_Pastor_Julian-0.jpg 1 no 0.55
+
+

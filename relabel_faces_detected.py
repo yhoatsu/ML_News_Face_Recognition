@@ -11,7 +11,8 @@ import sys
 # Library to detect faces, read the models to obtain the features of a face and to obtain the pixels where the face is.
 import dlib
 #
-from time import time
+import time
+from datetime import date
 #
 import collections
 #
@@ -65,6 +66,8 @@ with open("pickles/"+"x_train_"+predictor_model+"_"+face_rec_model+".pickle", 'r
     x_train = pickle.load(f)
 with open("pickles/"+"y_labels"+predictor_model+"_"+face_rec_model+".pickle", 'rb') as f:
     y_labels = pickle.load(f)
+with open("pickles/metadata_faces_recognized.pickle", 'rb') as f:
+    dictionary_faces = pickle.load(f)
 
 # Load a shape predictor to find face landmarks so we can precisely localize the face.
 if predictor_model == '5_face_landmarks':
@@ -146,161 +149,11 @@ def frame_to_time(frame):
 # to know if is a image or a video (same as .endswith(""))
 type_object = path_object.split(".")[-1]
 
-# Face detection in one image
-if type_object == 'jpg' or type_object == 'jpeg':
-    if verbose == "yes":
-        # To define a blank window where we'll draw an numpy image
-        win = dlib.image_window()
-
-    # Read the image of the user as a numpy array
-    image = dlib.load_rgb_image(path_object)
-    # Save the detects faces at the variable faces using the detector defined before
-    faces = face_detector(image, 1)
-
-    if verbose == "yes":
-        # To print at the blank window the image loaded
-        win.set_image(image)
-
-    # That loop is analyze each face detected at the variable faces
-    for face in faces:
-        if verbose == "yes":
-            # Remove all overlays from the image_window.
-            win.clear_overlay()
-
-        # The detector return different objects depend if we use cnn or hog
-        if face_rec_model == "cnn":
-            # Here we get the landmarks that defines the face.
-            shape = shape_pred(image, face.rect)
-            if verbose == "yes":
-                # Add a layer at the image showing the box where the face is.
-                win.add_overlay(face.rect)
-        else:
-            shape = shape_pred(image, face)
-            if verbose == "yes":
-                win.add_overlay(face)
-
-        if verbose == "yes":
-            # Add a layer at the image showing the landmarks that defines the face.
-            win.add_overlay(shape)
-            # Wait util the user press the Enter key to continue.
-            dlib.hit_enter_to_continue()
-
-        # Computes the 128D array that define the face and that'll be used to predict the label of the face.
-        face_descriptor = np.array(face_rec.compute_face_descriptor(image, shape, resample_times))
-
-        # distances = np.linalg.norm(face_encodings - face_to_compare, axis=1)
-        label_predicted = my_knn(face_descriptor, neighborhoods=1)
-        print(label_predicted)
-
-
-elif type_object == 'mp4' or type_object == 'avi':
+if type_object == 'mp4' or type_object == 'avi':
 
     video_in = cv2.VideoCapture(path_object)
-    video_out = cv2.VideoWriter('video_result.avi', cv2.VideoWriter_fourcc(*'XVID'),
+    video_out = cv2.VideoWriter('video_result_relabeled.avi', cv2.VideoWriter_fourcc(*'XVID'),
                                 min(25.0, video_in.get(5)), (int(video_in.get(3)), int(video_in.get(4))))
-    num_frame = 0
-    #
-    dictionary_faces = {}
-    dictionary_faces_temp = {}
-    dictionary_faces_temp['init'] = \
-    {'position': [{'left': -1, 'right': -1, 'top': -1, 'bottom': -1}],
-     'labels': [],
-     'num_frames': []}
-    #frames = []
-
-    while video_in.isOpened():
-        num_frame += 1
-        ret, frame = video_in.read()
-        #frames.append(frame)
-        faces = face_detector(frame, 1)
-        for face in faces:
-            # The detector return different objects depend if we use cnn or hog
-            if face_rec_model == "cnn":
-                # Here we get the landmarks that defines the face.
-                shape = shape_pred(frame, face.rect)
-                top, right, bottom, left = face.rect.top(), face.rect.right(), face.rect.bottom(), face.rect.left()
-            else:
-                shape = shape_pred(frame, face)
-                top, right, bottom, left = face.top(), face.right(), face.bottom(), face.left()
-
-            width_face = right - left
-            length_face = bottom - top
-
-            width_ratio = width_face/video_in.get(3)
-            #length_ratio = length_face/video_in.get(4)
-
-            coef_adjustment = (1-width_ratio)*0.06
-
-            #
-            center_face = {'axis_x': left+width_face/2, 'axis_y': top+length_face/2}
-            area_face = width_face*length_face
-
-            # Computes the 128D array that define the face and that'll be used to predict the label of the face.
-            face_descriptor = np.array(face_rec.compute_face_descriptor(frame, shape, resample_times))
-            #
-            label_predicted = my_knn(face_descriptor, coef=coef_adjustment, neighborhoods=1)
-            #
-            face_found = 0
-            there_are_faces = 0
-            for faces_in_dict in dictionary_faces_temp.values():
-
-                there_are_faces = 1
-
-                last_position = faces_in_dict['position'][-1]
-
-                if last_position['left'] <= center_face['axis_x'] <= last_position['right'] and \
-                        last_position['top'] <= center_face['axis_y'] <= last_position['bottom']:
-
-                    width_last_face = last_position['right'] - last_position['left']
-                    length_last_face = last_position['bottom'] - last_position['top']
-                    center_last_face = {'axis_x': last_position['left']+width_face/2,
-                                        'axis_y': last_position['top']+length_face/2}
-                    area_last_face = width_last_face*length_last_face
-
-                    if abs(center_last_face['axis_x']-center_face['axis_x']) <= video_in.get(3)*0.07 and \
-                            abs(center_last_face['axis_y']-center_face['axis_y']) <= video_in.get(4)*0.1 and \
-                            abs(area_last_face-area_face) <= video_in.get(3)*video_in.get(4)*0.004275:
-
-                        faces_in_dict['position'].append({'left': left, 'right': right, 'top': top, 'bottom': bottom})
-                        faces_in_dict['labels'].append(label_predicted)
-                        faces_in_dict['num_frames'].append(num_frame)
-
-                    face_found = 1
-
-            if face_found == 0 and there_are_faces == 1:
-                dictionary_faces_temp['face_' + str(time())] = \
-                    {'position': [{'left': left, 'right': right, 'top': top, 'bottom': bottom}],
-                     'labels': [label_predicted], 'num_frames': [num_frame]}
-
-            try:
-                del dictionary_faces_temp['init']
-            except KeyError:
-                pass
-
-            key_to_delete = []
-            for key, faces_in_dict in dictionary_faces_temp.items():
-                if num_frame-faces_in_dict['num_frames'][-1] >= 10:
-                    key_to_delete.append(key)
-                    pred_face = predict_face(faces_in_dict['labels'])
-                    if pred_face != 'Unknown':
-                        face_name = 'face_' + str(time())
-                        dictionary_faces[face_name] = faces_in_dict
-                        dictionary_faces[face_name]['label_predicted'] = pred_face
-
-            for keys in key_to_delete:
-                del dictionary_faces_temp[keys]
-
-        if verbose == "yes":
-            cv2.imshow('frame', frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        if num_frame == int(video_in.get(7)):
-            break
-
-    video_in.release()
-
-    video_in = cv2.VideoCapture(path_object)
     num_frame = 0
     while video_in.isOpened():
         num_frame += 1
@@ -335,14 +188,17 @@ elif type_object == 'mp4' or type_object == 'avi':
     start_frames = []
     end_frames = []
     labels = []
+    planes = []
+
     for faces in dictionary_faces.values():
         start_frames.append(frame_to_time(faces['num_frames'][0]))
         end_frames.append(frame_to_time(faces['num_frames'][-1]))
         labels.append(faces['label_predicted'])
+        planes.append(faces['plane_predicted'])
 
-    dictionary_dataframe = {'0start_frames': start_frames, '1end_frames': end_frames, '2label': labels}
+    metadata = [date.fromtimestamp(time.time())]*len(planes)
+
+    dictionary_dataframe = {'0start_frames': start_frames,
+                            '1end_frames': end_frames, '2label': labels, '3plane': planes, '4metadata': metadata}
     df = pd.DataFrame(data=dictionary_dataframe)
-    df.to_csv('/home/yhoatsu/IdeaProjects/ML_News_Face_Recognition/tabla.csv')
-
-
-
+    df.to_csv('/home/yhoatsu/IdeaProjects/ML_News_Face_Recognition/relabeled_faces.csv')

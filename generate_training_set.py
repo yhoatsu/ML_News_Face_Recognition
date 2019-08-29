@@ -91,6 +91,10 @@ for root, dirs, files in os.walk(path_object):
 
 # Save in a pickle object the lists x_train and y_labels
 # adding information at the file about the predictor and face recognition model used
+
+if 'pickles' not in os.listdir(BASE_DIR):
+    os.makedirs(os.path.join(BASE_DIR, "pickles"))
+
 with open(os.path.join(BASE_DIR, "pickles/"+"x_train_"+predictor_model+"_"+face_rec_model+".pickle"), 'wb') as f:
     pickle.dump(x_train, f)
 with open(os.path.join(BASE_DIR, "pickles/"+"y_labels"+predictor_model+"_"+face_rec_model+".pickle"), 'wb') as f:

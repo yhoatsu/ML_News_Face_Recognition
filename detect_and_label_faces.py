@@ -12,16 +12,17 @@ import sys
 import dlib
 #
 from time import time
+import datetime
 #
 import collections
 #
 import pandas as pd
+import shutil
 
-# To save images images/frames or video, we save the base path where that script is located
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+dlib.DLIB_USE_CUDA = True
 
 # To check if the params are well introduced by the user
-if len(sys.argv) != 7:
+if len(sys.argv) != 8:
     print(
         "Call this program like this:\n"
         "   ./face_recognition.py 5_face_landmarks hog ./images/test.jpg \n"
@@ -55,6 +56,16 @@ path_object = sys.argv[3]
 resample_times = int(sys.argv[4])
 verbose = sys.argv[5]
 threshold_user = float(sys.argv[6])
+use_save_data = sys.argv[7]
+
+# To save images images/frames or video, we save the base path where that script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+name_folder_analysis = path_object.split('/')[-1].split('.')[0]
+
+BASE_DIR_ANALYSIS = os.path.join(BASE_DIR, name_folder_analysis)
+BASE_DIR_VIDEOS = os.path.join(BASE_DIR_ANALYSIS, 'video_temp')
+BASE_DIR_PICKLES = os.path.join(BASE_DIR_ANALYSIS, 'pickles')
 
 # At the script "generate_training_set" we save two items:
 # x_train -> that is a list with the features of each face in our database that we'll use to predict.
@@ -99,7 +110,8 @@ def my_knn(face_descriptor_to_predict, coef=0, training_set=x_train, labels_trai
 
     # If the min distance between the introduced face descriptor and the faces at the training set
     # aren't to close (defined by the threshold) then stop here and return as Unknown the face under analysis
-    if distances[locations_lower_distances[0]] < threshold:
+    lower_distance = distances[locations_lower_distances[0]]
+    if lower_distance < threshold:
 
         # To get the labels of the K nearest neighborhoods
         labels_k_neighborhoods = [labels_training[index] for index in locations_lower_distances[:neighborhoods]]
@@ -115,7 +127,7 @@ def my_knn(face_descriptor_to_predict, coef=0, training_set=x_train, labels_trai
         prediction = 'Unknown'
 
     # Return the label with the prediction of the face
-    return prediction
+    return prediction, lower_distance
 
 
 #
@@ -149,6 +161,7 @@ def frame_to_time(frame):
     time_secs_acum = int(time_raw)
     time_min = int(time_secs_acum/60)
     time_hours = int(time_min/60)
+    time_min = time_min - time_hours*60
     time_secs = time_secs_acum - time_min*60
     return str(time_hours) + ':' + str(time_min) + ':' + str(time_secs) + '.' + str(time_milli_secs)
 
@@ -157,75 +170,60 @@ def frame_to_time(frame):
 # to know if is a image or a video (same as .endswith(""))
 type_object = path_object.split(".")[-1]
 
-# Face detection in one image
-if type_object == 'jpg' or type_object == 'jpeg':
-    if verbose == "yes":
-        # To define a blank window where we'll draw an numpy image
-        win = dlib.image_window()
-
-    # Read the image of the user as a numpy array
-    image = dlib.load_rgb_image(path_object)
-    # Save the detects faces at the variable faces using the detector defined before
-    faces = face_detector(image, 1)
-
-    if verbose == "yes":
-        # To print at the blank window the image loaded
-        win.set_image(image)
-
-    # That loop is analyze each face detected at the variable faces
-    for face in faces:
-        if verbose == "yes":
-            # Remove all overlays from the image_window.
-            win.clear_overlay()
-
-        # The detector return different objects depend if we use cnn or hog
-        if face_rec_model == "cnn":
-            # Here we get the landmarks that defines the face.
-            shape = shape_pred(image, face.rect)
-            if verbose == "yes":
-                # Add a layer at the image showing the box where the face is.
-                win.add_overlay(face.rect)
-        else:
-            shape = shape_pred(image, face)
-            if verbose == "yes":
-                win.add_overlay(face)
-
-        if verbose == "yes":
-            # Add a layer at the image showing the landmarks that defines the face.
-            win.add_overlay(shape)
-            # Wait util the user press the Enter key to continue.
-            dlib.hit_enter_to_continue()
-
-        # Computes the 128D array that define the face and that'll be used to predict the label of the face.
-        face_descriptor = np.array(face_rec.compute_face_descriptor(image, shape, resample_times))
-
-        # distances = np.linalg.norm(face_encodings - face_to_compare, axis=1)
-        label_predicted = my_knn(face_descriptor, neighborhoods=1)
-        print(label_predicted)
-
-
-elif type_object == 'mp4' or type_object == 'avi':
+if type_object == 'mp4' or type_object == 'avi':
 
     video_in = cv2.VideoCapture(path_object)
-    video_out = cv2.VideoWriter('video_result_all_faces.avi', cv2.VideoWriter_fourcc(*'XVID'),
+
+    total_frames = int(video_in.get(7))
+    num_frames_percentagje = round(total_frames/100)
+
+    num_frame_init = 0
+      
+    if use_save_data == 'True':
+        for variable in ['num_frame', 'time_faces', 'accuracy', 'labels_faces', 'labels_planes', 'dictionary_faces', 'dictionary_faces_temp']:
+            with open(os.path.join(BASE_DIR_PICKLES, variable+'.pickle'), 'rb') as file:
+                exec(variable+ '= pickle.load(file)')
+
+        label_video = len(os.listdir(BASE_DIR_VIDEOS))
+        if num_frame < total_frames:
+            video_out = cv2.VideoWriter(os.path.join(BASE_DIR_VIDEOS, 'video_result_all_faces_'+str(label_video)+'.avi'), cv2.VideoWriter_fourcc(*'XVID'),
                                 min(25.0, video_in.get(5)), (int(video_in.get(3)), int(video_in.get(4))))
-    num_frame = 0
-    time_faces = []
-    labels_faces = []
-    labels_planes = []
-    #
-    dictionary_faces = {}
-    dictionary_faces_temp = {}
-    dictionary_faces_temp['init'] = \
-    {'position': [{'left': -1, 'right': -1, 'top': -1, 'bottom': -1}],
-     'labels': [],
-     'num_frames': []}
+    else:
+        #shutil.rmtree(BASE_DIR_VIDEOS)
+        num_frame = 0
+        time_faces = []
+        labels_faces = []
+        labels_planes = []
+        accuracy = []
+        #
+        dictionary_faces = {}
+        dictionary_faces_temp = {}
+        dictionary_faces_temp['init'] = \
+        {'position': [{'left': -1, 'right': -1, 'top': -1, 'bottom': -1}],
+        'labels': [],
+        'accuracy': [],
+        'num_frames': []}
+        os.makedirs(BASE_DIR_VIDEOS)
+        os.makedirs(BASE_DIR_PICKLES)
+        label_video = len(os.listdir(BASE_DIR_VIDEOS))
+        video_out = cv2.VideoWriter(os.path.join(BASE_DIR_VIDEOS, 'video_result_all_faces_'+str(label_video)+'.avi'), cv2.VideoWriter_fourcc(*'XVID'),
+                                min(25.0, video_in.get(5)), (int(video_in.get(3)), int(video_in.get(4))))
 
     while video_in.isOpened():
+
+        if num_frame_init < num_frame and use_save_data == 'True':
+            ret, frame = video_in.read()
+            num_frame_init += 1
+            continue
+        elif num_frame >= total_frames:
+            break
+
         num_frame += 1
+        num_frame_init += 1
+
         ret, frame = video_in.read()
         #frames.append(frame)
-        faces = face_detector(frame, 1)
+        faces = face_detector(frame)
         for face in faces:
             # The detector return different objects depend if we use cnn or hog
             if face_rec_model == "cnn":
@@ -244,46 +242,53 @@ elif type_object == 'mp4' or type_object == 'avi':
 
             coef_adjustment = (1-(width_ratio*length_ratio)**(1/2))*0.06
 
-            #
             center_face = {'axis_x': left+width_face/2, 'axis_y': top+length_face/2}
             area_face = width_face*length_face
             axis_x_ratio = video_in.get(3)/center_face['axis_x']
             axis_y_ratio = video_in.get(4)/center_face['axis_y']
 
             type_plane = 'Plano general'
-            if 1.5 <= axis_x_ratio <= 2.5:
-                if 1.5 <= axis_y_ratio <= 2.5:
-                    if 0.8 <= width_ratio <= 1 and 0.55 <= length_ratio <= 1:
-                        type_plane = 'Primerísimo primer plano'
-                if 2 <= axis_y_ratio <= 3:
-                    if 0.13 <= width_ratio <= 0.2 and 0.2 <= length_ratio <= 0.55:
-                        type_plane = 'Primer plano'
-                if 3 <= axis_y_ratio <= 4:
-                    if 0.1 <= width_ratio <= 0.16 and 0.13 <= length_ratio <= 0.24:
-                        type_plane = 'Plano central'
-                    if 0.07 <= width_ratio <= 0.13 and 0.11 <= length_ratio <= 0.2:
-                        type_plane = 'Plano medio'
-                if 5.5 <= axis_y_ratio <= 6.5:
-                    if 0.16 <= width_ratio <= 0.8 and 0.11 <= length_ratio <= 0.2:
-                        type_plane = 'Plano americano'
-                if 4 <= axis_y_ratio <= 5:
-                    if 0 <= width_ratio <= 0.1 and 0.06 <= length_ratio <= 0.13:
-                        type_plane = 'Plano medio largo'
-                if 3.5 <= axis_y_ratio <= 4.5:
-                    if 0.07 <= width_ratio <= 0.13 and 0 <= length_ratio <= 0.11:
-                        type_plane = 'Plano entero'
+            #if 1.5 <= axis_x_ratio <= 2.5:
+            if 1.5 <= axis_y_ratio <= 2.5:
+                if 0.8 <= width_ratio <= 1 and 0.55 <= length_ratio <= 1:
+                    type_plane = 'Primerísimo primer plano'
+            if 2 <= axis_y_ratio <= 3:
+                if 0.13 <= width_ratio <= 0.2 and 0.2 <= length_ratio <= 0.55:
+                    type_plane = 'Primer plano'
+            if 3 <= axis_y_ratio <= 4:
+                if 0.1 <= width_ratio <= 0.16 and 0.13 <= length_ratio <= 0.24:
+                    type_plane = 'Plano central'
+                if 0.07 <= width_ratio <= 0.13 and 0.11 <= length_ratio <= 0.2:
+                    type_plane = 'Plano medio'
+            if 5.5 <= axis_y_ratio <= 6.5:
+                if 0.16 <= width_ratio <= 0.8 and 0.11 <= length_ratio <= 0.2:
+                    type_plane = 'Plano americano'
+            if 4 <= axis_y_ratio <= 5:
+                if 0 <= width_ratio <= 0.1 and 0.06 <= length_ratio <= 0.13:
+                    type_plane = 'Plano medio largo'
+            if 3.5 <= axis_y_ratio <= 4.5:
+                if 0.07 <= width_ratio <= 0.13 and 0 <= length_ratio <= 0.11:
+                    type_plane = 'Plano entero'
 
-                # Computes the 128D array that define the face and that'll be used to predict the label of the face.
+            # Computes the 128D array that define the face and that'll be used to predict the label of the face.
             face_descriptor = np.array(face_rec.compute_face_descriptor(frame, shape, resample_times))
             #
-            label_predicted = my_knn(face_descriptor, coef=coef_adjustment, neighborhoods=1)
+            label_predicted, distance = my_knn(face_descriptor, coef=coef_adjustment, neighborhoods=1)
             #
-            if label_predicted != 'Unknown':
+            if label_predicted == 'Unknown':
+                #time_faces.append(frame_to_time(num_frame))
+                #labels_faces.append(label_predicted)
+                #labels_planes.append(type_plane)
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 1)
+                cv2.putText(frame, label_predicted+str(round(distance,2)), (left, top),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 1, cv2.LINE_AA)
+            else:
                 time_faces.append(frame_to_time(num_frame))
                 labels_faces.append(label_predicted)
                 labels_planes.append(type_plane)
+                accuracy.append(distance)
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 4)
-                cv2.putText(frame, label_predicted, (left, top),
+                cv2.putText(frame, label_predicted+str(round(distance,2)), (left, top),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
             face_found = 0
@@ -300,14 +305,15 @@ elif type_object == 'mp4' or type_object == 'avi':
                     length_last_face = last_position['bottom'] - last_position['top']
                     center_last_face = {'axis_x': last_position['left']+width_face/2,
                                         'axis_y': last_position['top']+length_face/2}
-                    area_last_face = width_last_face*length_last_face
+                    #area_last_face = width_last_face*length_last_face
+                    # and abs(area_last_face-area_face) <= video_in.get(3)*video_in.get(4)*0.01
 
-                    if abs(center_last_face['axis_x']-center_face['axis_x']) <= video_in.get(3)*0.07 and \
-                            abs(center_last_face['axis_y']-center_face['axis_y']) <= video_in.get(4)*0.1 and \
-                            abs(area_last_face-area_face) <= video_in.get(3)*video_in.get(4)*0.004275:
+                    if abs(center_last_face['axis_x']-center_face['axis_x']) <= video_in.get(3)*0.25 and \
+                            abs(center_last_face['axis_y']-center_face['axis_y']) <= video_in.get(4)*0.25:
 
                         faces_in_dict['position'].append({'left': left, 'right': right, 'top': top, 'bottom': bottom})
                         faces_in_dict['labels'].append(label_predicted)
+                        faces_in_dict['accuracy'].append(distance)
                         faces_in_dict['planes'].append(type_plane)
                         faces_in_dict['num_frames'].append(num_frame)
 
@@ -316,7 +322,7 @@ elif type_object == 'mp4' or type_object == 'avi':
             if face_found == 0 and there_are_faces == 1:
                 dictionary_faces_temp['face_' + str(time())] = \
                     {'position': [{'left': left, 'right': right, 'top': top, 'bottom': bottom}],
-                     'labels': [label_predicted], 'planes': [type_plane], 'num_frames': [num_frame]}
+                     'labels': [label_predicted], 'accuracy': [distance], 'planes': [type_plane], 'num_frames': [num_frame]}
 
             try:
                 del dictionary_faces_temp['init']
@@ -328,16 +334,25 @@ elif type_object == 'mp4' or type_object == 'avi':
                 if num_frame-faces_in_dict['num_frames'][-1] >= 10:
                     key_to_delete.append(key)
                     pred_face = predict_face(faces_in_dict['labels'])
+                    min_accuracy = min(faces_in_dict['accuracy'])
                     pred_plane = predict_plane(faces_in_dict['planes'])
-                    if pred_face != 'Unknown':
-                        face_name = 'face_' + str(time())
-                        dictionary_faces[face_name] = faces_in_dict
-                        dictionary_faces[face_name]['label_predicted'] = pred_face
-                        dictionary_faces[face_name]['plane_predicted'] = pred_plane
+                    #if pred_face != 'Unknown':
+                    face_name = 'face_' + str(time())
+                    dictionary_faces[face_name] = faces_in_dict
+                    dictionary_faces[face_name]['label_predicted'] = pred_face
+                    dictionary_faces[face_name]['min_accuracy'] = min_accuracy
+                    dictionary_faces[face_name]['plane_predicted'] = pred_plane
 
             for keys in key_to_delete:
                 del dictionary_faces_temp[keys]
 
+            if len(dictionary_faces_temp) == 0:
+                dictionary_faces_temp['init'] = \
+                    {'position': [{'left': -1, 'right': -1, 'top': -1, 'bottom': -1}],
+                    'labels': [],
+                    'accuracy': [],
+                    'num_frames': []}
+                        
         video_out.write(frame)
 
         if verbose == "yes":
@@ -345,17 +360,64 @@ elif type_object == 'mp4' or type_object == 'avi':
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        if num_frame == int(video_in.get(7)):
+        #percentagje_analized = (num_frame/total_frames)*100
+
+        if num_frame%num_frames_percentagje == 0:
+            percentagje = int(num_frame/num_frames_percentagje)
+            print("Porcentaje del vídeo analizado: ", percentagje, "%")
+            
+            if percentagje%25 == 0 and percentagje != 100:
+                for element_to_save in ['num_frame', 'time_faces', 'accuracy', 'labels_faces', 'labels_planes', 'dictionary_faces', 'dictionary_faces_temp']:
+                    with open(os.path.join(BASE_DIR_PICKLES, element_to_save+'.pickle'), 'wb') as file:
+                        exec('pickle.dump('+element_to_save+', file)')
+                #sys.exit()
+
+        #if abs(int(percentagje_analized)-round(percentagje_analized,1)) < 0.0009:
+        #    print("Porcentaje del vídeo analizado: ", int(percentagje_analized), "%")
+
+        
+        #for element_to_save in ['num_frame', 'time_faces', 'labels_faces', 'labels_planes', 'dictionary_faces', 'dictionary_faces_temp']:
+         #   with open(os.path.join(BASE_DIR_PICKLES, element_to_save+'.pickle'), 'wb') as file:
+          #      exec('pickle.dump('+element_to_save+', file)')
+
+        if num_frame == int(video_in.get(7))+1:
+            for element_to_save in ['num_frame', 'time_faces', 'accuracy', 'labels_faces', 'labels_planes', 'dictionary_faces', 'dictionary_faces_temp']:
+                with open(os.path.join(BASE_DIR_PICKLES, element_to_save+'.pickle'), 'wb') as file:
+                    exec('pickle.dump('+element_to_save+', file)')
             break
 
-    dictionary_dataframe = {'time': time_faces, 'label': labels_faces, 'plane': labels_planes}
-    df = pd.DataFrame(data=dictionary_dataframe)
-    df.to_csv('./all_recognized_faces_table.csv')
-
-    with open(os.path.join(BASE_DIR, "pickles/metadata_faces_recognized.pickle"), 'wb') as f:
-        pickle.dump(dictionary_faces, f)
+    video_out.release()
+    video_out_final = cv2.VideoWriter(os.path.join(BASE_DIR_ANALYSIS, 'video_result_all_faces.avi'), cv2.VideoWriter_fourcc(*'XVID'),
+                                min(25.0, video_in.get(5)), (int(video_in.get(3)), int(video_in.get(4))))
+    
+    metadata = 'Date of Analysis: ' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ', Video Analyzed: ' + name_folder_analysis + ', Characters to identify: Alberto_Rivera, Fernando_Giner, Isabel_Bonig, Joan_Ribo, Jose_Maria_Llanos, Maria_Jose_Catala, Maria_Oliver, Monica_Oltra, Pablo_Casado, Pablo_Iglesias, Pedro_Sanchez, Ruben_Martinez_Dalmau, Sandra_Gomez, Santiago_Abascal, Toni_Canto, Ximo_Puig, Jose_Gosalbez.' + ' Television_network: A punt, Video length:' + frame_to_time(int(video_in.get(7))) 
 
     video_in.release()
-    video_out.release()
+
+    for video_labels in range(len(os.listdir(BASE_DIR_VIDEOS))):
+
+        video_in = cv2.VideoCapture(os.path.join(BASE_DIR_VIDEOS, 'video_result_all_faces_'+str(video_labels)+'.avi'))
+        iter=0
+        while video_in.isOpened():
+            iter+=1
+            ret, frame = video_in.read()
+            video_out_final.write(frame)
+            if iter >= int(video_in.get(7))-1:
+                break
+        video_in.release()
+    video_out_final.release()
+
+    #metadata = ['Date of Analysis: ' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),  'Video Analyzed: '+name_folder_analysis, 'Characters to identify: Alberto_Rivera, Fernando_Giner, Isabel_Bonig, Joan_Ribo, Jose_Maria_Llanos, Maria_Jose_Catala, Maria_Oliver, Monica_Oltra, Pablo_Casado, Pablo_Iglesias, Pedro_Sanchez, Ruben_Martinez_Dalmau, Sandra_Gomez, Santiago_Abascal, Toni_Canto, Ximo_Puig']
+    #metadata = metadata + [' ']*(len(time_faces)-3)
+
+    dictionary_dataframe = {'Time': time_faces, 'Label_predicted': labels_faces, 'Plane_predicted': labels_planes, 'Metric of accuracy': accuracy, metadata: [' ']*len(time_faces)}
+    df = pd.DataFrame(data=dictionary_dataframe)
+    
+    df.to_csv(os.path.join(BASE_DIR_ANALYSIS,'recognized_faces.csv'), index=False)
+
+    with open(os.path.join(BASE_DIR_PICKLES, 'metadata_faces_recognized.pickle'), 'wb') as f:
+        pickle.dump(dictionary_faces, f)
+
+    shutil.rmtree(BASE_DIR_VIDEOS)
     cv2.destroyAllWindows()
 
